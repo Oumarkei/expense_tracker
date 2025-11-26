@@ -1,0 +1,18 @@
+# Python Env
+expenv/
+
+# Compiled Python files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Fichiers système
+# ========================
+.DS_Store                # macOS
+# Streamlit (si dossiers temporaires apparaissent)
+# ========================
+.streamlit/
+
+# Database
+data/
