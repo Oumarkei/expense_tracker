@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime
+from urllib.parse import urlparse, unquote
 import psycopg2
 
 # ============================
@@ -22,30 +23,47 @@ PROJECT_START_DATE = datetime(2024, 11, 1)
 def get_connection():
     """
     Cached DB connection — created once, reused across all reruns.
-    Uses individual secret keys to avoid URL parsing / double-decode issues.
+    Parses the URL manually so special characters in passwords (like @) are handled safely.
+    In secrets.toml, encode @ as %40 in your password.
+    Example: p@ss -> p%40ss
     """
+    url = st.secrets["database"]["url"]
+    p = urlparse(url)
+
+    host = p.hostname
+    port = p.port or 6543
+    dbname = p.path.lstrip("/")
+
+    # unquote safely decodes %40 -> @ and other encoded chars
+    user = unquote(p.username) if p.username else ""
+    password = unquote(p.password) if p.password else ""
+
     return psycopg2.connect(
-        host=st.secrets["database"]["host"],
-        port=int(st.secrets["database"]["port"]),
-        user=st.secrets["database"]["user"],
-        password=st.secrets["database"]["password"],
-        dbname=st.secrets["database"]["dbname"],
+        host=host,
+        port=port,
+        user=user,
+        password=password,
+        dbname=dbname,
         sslmode="require",
         connect_timeout=10,
     )
 
 
 def get_cursor():
-    """Returns a fresh cursor, reconnecting if the connection dropped."""
+    """Returns the cached connection, reconnecting if it dropped."""
     conn = get_connection()
     try:
-        conn.isolation_level  # lightweight liveness check
+        # Lightweight check — will raise if connection is dead
+        conn.isolation_level
     except Exception:
-        # Clear the cached resource and reconnect
         get_connection.clear()
         conn = get_connection()
     return conn
 
+
+# ============================
+#  DB OPERATIONS
+# ============================
 
 def init_db():
     conn = get_cursor()
