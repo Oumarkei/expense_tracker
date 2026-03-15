@@ -20,11 +20,17 @@ PROJECT_START_DATE = datetime(2024, 11, 1)
 # ============================
 
 def get_connection():
+    from urllib.parse import urlparse, unquote
     url = st.secrets["database"]["url"]
-    # Supabase requiert SSL — on l'ajoute si absent
-    if "sslmode" not in url:
-        url += "?sslmode=require"
-    return psycopg2.connect(url)
+    p = urlparse(url)
+    return psycopg2.connect(
+        host=p.hostname,
+        port=p.port or 6543,
+        user=unquote(p.username),
+        password=unquote(p.password),
+        dbname=p.path.lstrip("/"),
+        sslmode="require"
+    )
 
 
 def init_db():
