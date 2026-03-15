@@ -3,8 +3,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta
-import sqlite3
-import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 # ============================
 #  CONFIGURATION
@@ -13,30 +13,29 @@ import os
 st.set_page_config(page_title="Expense Tracker", layout="wide")
 st.title("💰 Expense Tracker")
 
-# Crée le dossier data s'il n'existe pas
-DB_DIR = "data"
-os.makedirs(DB_DIR, exist_ok=True)
-# Chemin de la base de données SQLite
-DB_NAME = os.path.join(DB_DIR, "expenses.db")
 PROJECT_START_DATE = datetime(2024, 11, 1)
 
 # ============================
 #  DATABASE
 # ============================
 
+def get_connection():
+    return psycopg2.connect(st.secrets["database"]["url"])
+
+
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_connection()
     c = conn.cursor()
 
     c.execute('''CREATE TABLE IF NOT EXISTS expenses
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 (id SERIAL PRIMARY KEY,
                   description TEXT NOT NULL,
                   amount REAL NOT NULL,
                   category TEXT NOT NULL,
                   date TEXT NOT NULL)''')
 
     c.execute('''CREATE TABLE IF NOT EXISTS budget
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 (id SERIAL PRIMARY KEY,
                   month TEXT NOT NULL UNIQUE,
                   amount REAL NOT NULL)''')
 
@@ -45,42 +44,45 @@ def init_db():
 
 
 def get_budget_for_month(year, month):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_connection()
     c = conn.cursor()
     month_key = f"{year}-{month:02d}"
-    c.execute("SELECT amount FROM budget WHERE month = ?", (month_key,))
+    c.execute("SELECT amount FROM budget WHERE month = %s", (month_key,))
     result = c.fetchone()
     conn.close()
-    return result[0] if result else 5000.0
+    return result[0] if result else 1000.0
 
 
 def set_budget_for_month(year, month, amount):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_connection()
     c = conn.cursor()
     month_key = f"{year}-{month:02d}"
-    c.execute("INSERT OR REPLACE INTO budget (month, amount) VALUES (?, ?)", (month_key, amount))
+    c.execute("""
+        INSERT INTO budget (month, amount) VALUES (%s, %s)
+        ON CONFLICT (month) DO UPDATE SET amount = EXCLUDED.amount
+    """, (month_key, amount))
     conn.commit()
     conn.close()
 
 
 def add_expense(description, amount, category, date):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_connection()
     c = conn.cursor()
-    c.execute("INSERT INTO expenses (description, amount, category, date) VALUES (?, ?, ?, ?)",
+    c.execute("INSERT INTO expenses (description, amount, category, date) VALUES (%s, %s, %s, %s)",
               (description, amount, category, date))
     conn.commit()
     conn.close()
 
 
 def get_expenses_for_month(year, month):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_connection()
     c = conn.cursor()
     start = f"{year}-{month:02d}-01"
     end = f"{year}-{month:02d}-31"
     c.execute("""
         SELECT id, description, amount, category, date 
         FROM expenses 
-        WHERE date >= ? AND date <= ?
+        WHERE date >= %s AND date <= %s
         ORDER BY date DESC
     """, (start, end))
     rows = c.fetchall()
@@ -89,7 +91,7 @@ def get_expenses_for_month(year, month):
 
 
 def get_all_expenses():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_connection()
     c = conn.cursor()
     c.execute("SELECT id, description, amount, category, date FROM expenses ORDER BY date DESC")
     rows = c.fetchall()
@@ -98,9 +100,9 @@ def get_all_expenses():
 
 
 def delete_expense(expense_id):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_connection()
     c = conn.cursor()
-    c.execute("DELETE FROM expenses WHERE id = ?", (expense_id,))
+    c.execute("DELETE FROM expenses WHERE id = %s", (expense_id,))
     conn.commit()
     conn.close()
 
